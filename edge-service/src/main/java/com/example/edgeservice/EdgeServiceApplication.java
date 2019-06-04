@@ -14,3 +14,6 @@ public class EdgeServiceApplication {
         SpringApplication.run(EdgeServiceApplication.class, args);
     }
 }
+
+
+
