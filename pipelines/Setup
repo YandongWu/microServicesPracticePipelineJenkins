@@ -1,0 +1,89 @@
+#!groovy
+node {   
+// '##################Creditial SETUP########################'
+def GIT_URL = 'git@github.ibm.com:bchen-cn/microservices-series-practice.git'
+def GIT_CRED = 'bchen-private-key'
+def EUREKA_EXPOSE_PORT = 8761
+def ZUUL_EXPOSE_PORT = 80
+// '##################DOCKER SETUP#########################'
+def Eureka_PRODUCT_NAME="registry-service"
+def NETWORK_NAME="micros-network"
+def Eureka_CONTAINER_NAME="${Eureka_PRODUCT_NAME}"
+def Eureka_DEPLOY_IMAGE_NAME="${Eureka_PRODUCT_NAME}"
+def Eureka_DEPLOY_IMAGE_TAG="build" + env.BUILD_NUMBER
+def Eureka_INVALID_IMAGE_NUMBER= env.BUILD_NUMBER.toInteger() - 3
+def Eureka_INVALID_IMAGE_NAME="${Eureka_DEPLOY_IMAGE_NAME}:build${Eureka_INVALID_IMAGE_NUMBER}"
+
+def Zuul_PRODUCT_NAME="edge-service"
+def Zuul_CONTAINER_NAME="${Zuul_PRODUCT_NAME}"
+def Zuul_DEPLOY_IMAGE_NAME="${Zuul_PRODUCT_NAME}"
+def Zuul_DEPLOY_IMAGE_TAG="build" + env.BUILD_NUMBER
+def Zuul_INVALID_IMAGE_NUMBER= env.BUILD_NUMBER.toInteger() - 3
+def Zuul_INVALID_IMAGE_NAME="${Zuul_DEPLOY_IMAGE_NAME}:build${Zuul_INVALID_IMAGE_NUMBER}"
+
+//################# CI PART ###################################
+    stage('Setup Environment') {
+        checkout([$class: 'GitSCM', branches: [[name: '*/master']], doGenerateSubmoduleConfigurations: false, extensions: [], submoduleCfg: [], userRemoteConfigs: [[credentialsId: GIT_CRED, url: GIT_URL]]])
+    }
+    stage('Build eureka and zuul and prepare the docker image.') {
+        sh 'chmod +x ./service-registry/gradlew'
+		sh "cd service-registry; ./gradlew clean build; docker build -t ${Eureka_DEPLOY_IMAGE_NAME}:${Eureka_DEPLOY_IMAGE_TAG} ."
+		sh 'chmod +x ./edge-service/gradlew'
+		sh "cd edge-service; ./gradlew clean build; docker build -t ${Zuul_DEPLOY_IMAGE_NAME}:${Zuul_DEPLOY_IMAGE_TAG} ."
+    }
+	stage('Deploy') {
+		def containerStatus = "CONTAINER_IS_EXIST=\"\$(docker ps -aq -f name=${Eureka_CONTAINER_NAME})\""
+        def removeContainer = """
+            if [ ! -z \"\$CONTAINER_IS_EXIST\" ]; then
+                docker ps -aq -f name=${Eureka_CONTAINER_NAME}| xargs docker rm -f;\
+            fi
+        """
+        def imageStatus = "INVALID_IMAGE_IS_EXIST=\"\$(docker images -q ${Eureka_INVALID_IMAGE_NAME})\""
+        def removeImage = """
+            if [ ! -z \"\$INVALID_IMAGE_IS_EXIST\" ]; then
+                docker rmi -f ${Eureka_INVALID_IMAGE_NAME};\\
+            fi
+        """
+		
+		def zuulContainerStatus = "Zuul_CONTAINER_IS_EXIST=\"\$(docker ps -aq -f name=${Zuul_CONTAINER_NAME})\""
+        def removeZuulContainer = """
+            if [ ! -z \"\$Zuul_CONTAINER_IS_EXIST\" ]; then
+                docker ps -aq -f name=${Zuul_CONTAINER_NAME}| xargs docker rm -f;\
+            fi
+        """
+        def zuulImageStatus = "INVALID_Zuul_IMAGE_IS_EXIST=\"\$(docker images -q ${Zuul_INVALID_IMAGE_NAME})\""
+        def removeZuulImage = """
+            if [ ! -z \"\$INVALID_Zuul_IMAGE_IS_EXIST\" ]; then
+                docker rmi -f ${Zuul_INVALID_IMAGE_NAME};\\
+            fi
+        """
+		
+		def networkStatus = "NETWORK_IS_EXIST=\"\$(docker network list -f name=${NETWORK_NAME} -q)\""
+        def createNetwork = """
+            if [ -z \"\$NETWORK_IS_EXIST\" ]; then
+                docker network create ${NETWORK_NAME};\
+            fi
+        """
+		
+				  
+		sh """
+			${containerStatus}
+			${removeContainer}
+			${imageStatus}
+			${removeImage}
+			${zuulContainerStatus}
+			${removeZuulContainer}
+			${zuulImageStatus}
+			${removeZuulImage}
+			${networkStatus}
+			${createNetwork}
+		"""
+		sh """
+            docker run -d -p ${EUREKA_EXPOSE_PORT}:8761 --restart=unless-stopped --name ${Eureka_CONTAINER_NAME}  ${Eureka_DEPLOY_IMAGE_NAME}:${Eureka_DEPLOY_IMAGE_TAG};\
+			docker network connect ${NETWORK_NAME} ${Eureka_CONTAINER_NAME}
+			docker run -d -p ${ZUUL_EXPOSE_PORT}:8080 --restart=unless-stopped --name ${Zuul_CONTAINER_NAME}  ${Zuul_DEPLOY_IMAGE_NAME}:${Zuul_DEPLOY_IMAGE_TAG};\
+			docker network connect ${NETWORK_NAME} ${Zuul_CONTAINER_NAME}
+		"""
+    }
+	
+	}
