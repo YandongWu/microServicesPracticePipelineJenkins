@@ -1,8 +1,8 @@
 #!groovy
 node {   
 // '##################Creditial SETUP########################'
-def GIT_URL = 'git@github.ibm.com:bchen-cn/microservices-series-practice.git'
-def GIT_CRED = 'bchen-private-key'
+def GIT_URL = 'git@github.com:YandongWu/microServicesPracticePipelineJenkins.git'
+def GIT_CRED = 'wuyd-private-key'
 def EUREKA_EXPOSE_PORT = 8761
 def ZUUL_EXPOSE_PORT = 80
 // '##################DOCKER SETUP#########################'
